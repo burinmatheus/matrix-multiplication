@@ -1,0 +1,10 @@
+{
+  "name": "Smart Route Planning - Dev Container",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "settings": {},
+  "extensions": [],
+  "postCreateCommand": "make run-hybrid",
+  "remoteUser": "vscode"
+}
