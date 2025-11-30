@@ -1,10 +1,26 @@
 {
-  "name": "Smart Route Planning - Dev Container",
+  "name": "Matrix Multiplication - Dev Container",
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "settings": {},
-  "extensions": [],
-  "postCreateCommand": "make run-hybrid",
+  "containerEnv": {
+    "DEVCONTAINER": "1"
+  },
+  "remoteEnv": {
+    "DEVCONTAINER": "1"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3"
+      },
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-python.python"
+      ]
+    }
+  },
+  "postCreateCommand": "make && bash scripts/auto_benchmark.sh",
   "remoteUser": "vscode"
 }

@@ -7,6 +7,11 @@ RUN apt-get update \
     make \
     openmpi-bin \
     libopenmpi-dev \
+    python3 \
+    python3-pip \
+    python3-pandas \
+    python3-matplotlib \
+    python3-numpy \
   && rm -rf /var/lib/apt/lists/*
 
 ENV DEBIAN_FRONTEND=noninteractive

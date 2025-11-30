@@ -1,0 +1,17 @@
+{
+  "terminal.integrated.env.linux": {
+    "DEVCONTAINER": "1"
+  },
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "/usr/lib/x86_64-linux-gnu/openmpi/include",
+    "/usr/include"
+  ],
+  "C_Cpp.default.compilerPath": "/usr/bin/mpicc",
+  "C_Cpp.default.cStandard": "c99",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+  "files.associations": {
+    "*.c": "c",
+    "*.h": "c"
+  }
+}
