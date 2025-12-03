@@ -118,12 +118,15 @@ double parallel_multiplication_optimized(double *A, double *B, double *C, int n,
     
     // Multiplicação local híbrida otimizada
     // Usar schedule(guided) para melhor balanceamento em matrizes gigantes
+    // guided: divide as iterações do loop de forma dinâmica
     #pragma omp parallel for schedule(guided, 8)
     for (int i = 0; i < local_rows; i++) {
         for (int j = 0; j < n; j++) {
             double sum = 0.0;
             
-            // Loop interno vetorizável (compilador pode usar SIMD)
+            // Instrui o compilador a tentar paralelizar as iterações do loop usando instruções SIMD.
+            // SIMD permite que múltiplos dados sejam processados em uma única operação.
+            // Sem reduction, várias threads tentariam somar em sum ao mesmo tempo → race condition!
             #pragma omp simd reduction(+:sum)
             for (int k = 0; k < n; k++) {
                 sum += local_A[i * n + k] * B_T[j * n + k];
@@ -255,32 +258,34 @@ void print_metrics(Metrics *metrics) {
 
 int main(int argc, char *argv[]) {
     int rank, size;
-    int n = 2000;  // Padrão gigante
-    int run_sequential = 0;  // Desabilitado por padrão para gigantes
-    int num_threads = 4;
-    int verify = 0;  // Verificação cara para gigantes
+    int n = 2000;  // Tamanho padrão das matrizes (grande)
+    int run_sequential = 0;  // Desabilitado por padrão para grandes matrizes
+    int num_threads = 4;  // Número de threads por processo
+    int verify = 0;  // Flag para verificação de resultado (pode ser cara para grandes matrizes)
     
+    // Inicializa o ambiente MPI
     MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);  // Obtém o rank do processo atual
+    MPI_Comm_size(MPI_COMM_WORLD, &size);  // Obtém o número total de processos
     
-    // Processar argumentos
+    // Processamento de argumentos passados via linha de comando
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
-            n = atoi(argv[i + 1]);
+            n = atoi(argv[i + 1]);  // Define o tamanho da matriz
             i++;
         } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
-            num_threads = atoi(argv[i + 1]);
+            num_threads = atoi(argv[i + 1]);  // Define o número de threads
             i++;
         } else if (strcmp(argv[i], "--seq") == 0) {
-            run_sequential = 1;
+            run_sequential = 1;  // Habilita execução sequencial
         } else if (strcmp(argv[i], "--verify") == 0) {
-            verify = 1;
+            verify = 1;  // Habilita verificação de resultados
         }
     }
     
-    omp_set_num_threads(num_threads);
+    omp_set_num_threads(num_threads);  // Define o número de threads para OpenMP
     
+    // Impressão de informações gerais (apenas para o processo mestre)
     if (rank == MASTER) {
         printf("\n");
         printf("╔═════════════════════════════════════════════════════════════╗\n");
@@ -297,43 +302,47 @@ int main(int argc, char *argv[]) {
         printf("═════════════════════════════════════════════════════════════\n\n");
     }
     
-    // Alocar matrizes
+    // Alocação das matrizes A, B, C_seq e C_par
     double *A = NULL, *B = NULL, *C_seq = NULL, *C_par = NULL;
     
     if (rank == MASTER) {
+        // Aloca as matrizes A, B e C_par para o processo mestre
         printf("Alocando matrizes...\n");
         A = (double *)aligned_alloc(64, n * n * sizeof(double));
         B = (double *)aligned_alloc(64, n * n * sizeof(double));
         C_par = (double *)aligned_alloc(64, n * n * sizeof(double));
         
+        // Inicializa as matrizes A e B
         printf("Inicializando matrizes A e B...\n");
-        initialize_matrix(A, n, n, 42);
-        initialize_matrix(B, n, n, 123);
+        initialize_matrix(A, n, n, 42);  // Preenche A com valores
+        initialize_matrix(B, n, n, 123); // Preenche B com valores
         printf("✓ Matrizes inicializadas\n\n");
     } else {
+        // Os outros processos alocam apenas as matrizes B e C_par
         B = (double *)aligned_alloc(64, n * n * sizeof(double));
         C_par = (double *)aligned_alloc(64, n * n * sizeof(double));
     }
     
+    // Estrutura para armazenar métricas de desempenho
     Metrics metrics;
     metrics.matrix_size = n;
     metrics.num_processes = size;
     metrics.num_threads = num_threads;
     
-    // Tentar carregar baseline sequencial existente
+    // Carrega o tempo base da execução sequencial, se existir
     double baseline_time = -1.0;
     if (rank == MASTER) {
         baseline_time = load_sequential_baseline(n);
     }
     
-    // Execução sequencial (apenas mestre)
-    // Executar SE: (1) solicitado com --seq OU (2) baseline não existe
+    // Execução sequencial (apenas para o mestre)
     if (rank == MASTER && (run_sequential || baseline_time < 0.0)) {
-        // Alocar C_seq se necessário
+        // Aloca a matriz C_seq se necessário
         if (!C_seq) {
             C_seq = (double *)aligned_alloc(64, n * n * sizeof(double));
         }
         
+        // Executa a multiplicação sequencial otimizada
         printf("Executando multiplicação SEQUENCIAL otimizada...");
         if (baseline_time < 0.0) {
             printf(" (gerando baseline)\n");
@@ -341,45 +350,46 @@ int main(int argc, char *argv[]) {
             printf("\n");
         }
         fflush(stdout);
-        metrics.sequential_time = sequential_multiplication_optimized(A, B, C_seq, n);
+        metrics.sequential_time = sequential_multiplication_optimized(A, B, C_seq, n);  // Função de multiplicação sequencial
         printf("✓ Tempo sequencial: %.4f segundos\n\n", metrics.sequential_time);
         
-        // Salvar baseline se foi a primeira vez
+        // Salva o tempo base, caso seja a primeira execução
         if (baseline_time < 0.0) {
             save_sequential_baseline(n, metrics.sequential_time);
             baseline_time = metrics.sequential_time;
         }
     } else if (rank == MASTER && baseline_time >= 0.0) {
-        // Usar baseline existente
+        // Usa o tempo base se ele já existir
         metrics.sequential_time = baseline_time;
         printf("Usando baseline sequencial: %.4f segundos\n\n", baseline_time);
     } else {
         metrics.sequential_time = 0.0;
     }
     
-    // Sincronizar
+    // Sincroniza os processos
     MPI_Barrier(MPI_COMM_WORLD);
     
-    // Execução paralela
+    // Execução paralela híbrida (MPI + OpenMP)
     if (rank == MASTER) {
         printf("Executando multiplicação PARALELA híbrida (MPI + OpenMP)...\n");
         fflush(stdout);
     }
     
+    // Chama a função para execução paralela
     double parallel_time = parallel_multiplication_optimized(A, B, C_par, n, rank, size);
     
     if (rank == MASTER) {
         metrics.parallel_time = parallel_time;
         printf("✓ Tempo paralelo: %.4f segundos\n", metrics.parallel_time);
         
-        // Calcular GFLOPS (2*n^3 operações)
+        // Calcula a quantidade de operações (GFLOPS)
         double flops = 2.0 * n * n * n;
         metrics.gflops = flops / (metrics.parallel_time * 1e9);
         
-        // Verificar resultado (se solicitado)
+        // Verifica o resultado (se solicitado)
         if (verify && run_sequential) {
             printf("\nVerificando resultado (amostragem)...\n");
-            int sample_rate = (n > 1000) ? 100 : 10;
+            int sample_rate = (n > 1000) ? 100 : 10;  // Taxa de amostragem para verificação
             if (verify_result_sampled(C_seq, C_par, n, 1e-6, sample_rate)) {
                 printf("✓ Resultados corretos!\n");
             } else {
@@ -387,7 +397,7 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Calcular métricas (sempre que temos baseline)
+        // Calcula métricas de desempenho (speedup e eficiência)
         if (metrics.sequential_time > 0.0) {
             metrics.speedup = metrics.sequential_time / metrics.parallel_time;
             metrics.efficiency = (metrics.speedup / (size * num_threads)) * 100.0;
@@ -396,18 +406,20 @@ int main(int argc, char *argv[]) {
             metrics.efficiency = 0.0;
         }
         
-        // Exibir e salvar
+        // Exibe e salva as métricas
         print_metrics(&metrics);
         save_metrics(&metrics, "matrix_giant_metrics.csv");
         
-        // Liberar memória
+        // Libera a memória das matrizes
         free(A);
         if (C_seq) free(C_seq);
     }
     
+    // Libera a memória das matrizes B e C_par
     free(B);
     free(C_par);
     
+    // Finaliza o ambiente MPI
     MPI_Finalize();
     return 0;
 }

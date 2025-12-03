@@ -7,7 +7,7 @@ Implementação **altamente otimizada** de multiplicação de matrizes usando **
 Esta implementação inclui técnicas state-of-the-art para maximizar performance:
 
 - **Transposta de Matriz B** → Localidade de cache 10-50x melhor
-- **Vetorização SIMD** → 4-8x mais rápido no loop interno
+- **Vetorização SIMD (Single Instruction, Multiple Data)** → 4-8x mais rápido no loop interno (Modelo de processamento paralelo onde uma única instrução é executada em múltiplos dados simultaneamente.)
 - **Escalonamento Dinâmico** → Balanceamento de carga otimizado
 - **Compilação Nativa** → Instruções específicas do CPU (`-march=native`)
 - **Paralelização Híbrida** → MPI entre nós + OpenMP dentro de cada nó
@@ -18,11 +18,10 @@ Esta implementação inclui técnicas state-of-the-art para maximizar performanc
 
 Ao abrir este projeto no devcontainer:
 1. **Compilação automática** do código otimizado
-2. **Benchmark automático** executado (18-20 testes, ~2-3 min)
+2. **Benchmark automático**
    - Matrizes: 1500×1500 e 800×800
    - Configurações: 1, 2, 4, 8 processos MPI × 1, 2, 4, 8 threads OpenMP
-   - Identifica o **ponto de quebra** onde paralelismo deixa de compensar
-3. **Gráficos gerados** automaticamente em `matrix_giant_analysis.png` (9 painéis)
+3. **Gráficos gerados** automaticamente em `matrix_giant_analysis.png`
 4. **Métricas salvas** em `matrix_giant_metrics.csv`
 
 📊 Os resultados do último benchmark estão documentados na seção "Benchmark Automático" abaixo.
@@ -323,65 +322,6 @@ make
 
 Ao abrir o projeto no devcontainer, um benchmark automático é executado identificando o **ponto de quebra** onde paralelismo deixa de valer a pena:
 
-### 🔬 Resultados do Último Benchmark
-
-#### Matriz 1500×1500 (GRANDE)
-| Config | Cores | GFLOPS | Tempo | Observação |
-|--------|-------|--------|-------|------------|
-| 1P×1T | 1 | 2.00 | 3.37s | Baseline |
-| 1P×8T | 8 | 2.06 | 3.28s | ⚠️ **Overhead!** |
-| **2P×1T** | **2** | **3.85** | **1.75s** | ✅ **Melhor** |
-| 2P×2T | 4 | 3.19 | 2.11s | +60% vs 1P |
-| 4P×2T | 8 | 3.41 | 1.98s | Boa escala |
-
-**Conclusão:** Matriz grande escala bem até 2-4 cores. 8 threads em 1 processo = ineficiente!
-
-#### Matriz 800×800 (MÉDIA)
-| Config | Cores | GFLOPS | Tempo | Observação |
-|--------|-------|--------|-------|------------|
-| 1P×1T | 1 | 2.73 | 0.38s | Baseline |
-| 1P×4T | 4 | 2.67 | 0.38s | ⚠️ Sem ganho |
-| 2P×4T | 8 | 4.73 | 0.22s | +73% |
-| **4P×2T** | **8** | **6.23** | **0.16s** | 🏆 **Campeão** |
-
-**Conclusão:** Matriz média escala muito bem até 8 cores com híbrido MPI+OpenMP.
-
-### 🎓 Lições Aprendidas
-
-1. **OpenMP sozinho (1P×NT) é ineficiente** - sempre use híbrido MPI+OpenMP
-2. **Matriz 1500**: ponto de quebra em 8 cores (overhead > ganho)
-3. **Matriz 800**: escala bem até 8 cores
-4. **Configurações ideais:**
-   - Matrizes grandes (≥1500): `mpirun -np 2 ./bin/matrix_giant -n <SIZE> -t 2`
-   - Matrizes médias (≤1000): `mpirun -np 4 ./bin/matrix_giant -n <SIZE> -t 2`
-
-📄 Os resultados ficam em `matrix_giant_metrics.csv` e `matrix_giant_analysis.png` (gerados automaticamente).
-
-## 📈 Limites de Tamanho e Memória
-
-### Tamanhos Suportados
-
-| Tamanho | Elementos | Memória (3 matrizes) | Tempo Estimado* |
-|---------|-----------|---------------------|-----------------|
-| 1000×1000 | 1M | 23 MB | ~1s |
-| 2000×2000 | 4M | 92 MB | ~8s |
-| 3000×3000 | 9M | 206 MB | ~30s |
-| 5000×5000 | 25M | 572 MB | ~2 min |
-| 8000×8000 | 64M | 1.5 GB | ~10 min |
-| 10000×10000 | 100M | 2.3 GB | ~20 min |
-
-*Com 4 processos × 4 threads (16 cores)
-
-### Requisitos de Memória por Processo MPI
-
-Com MPI, cada processo precisa:
-- Linhas de A: `(N² / P) × 8 bytes`
-- Matriz B completa: `N² × 8 bytes` (broadcast)
-- Transposta B local: `N² × 8 bytes`
-- Resultado local: `(N² / P) × 8 bytes`
-
-**Total por processo ≈ `2N² + 2(N²/P)` bytes**
-
 ### Cálculo de GFLOPS
 
 ```
@@ -408,53 +348,6 @@ for (int ii = 0; ii < n; ii += TILE_SIZE) {
 }
 ```
 
-### Prefetching Manual
-```c
-__builtin_prefetch(&A[(i+1)*n], 0, 3);
-```
-
-### Algoritmos Alternativos
-
-Para matrizes ainda maiores:
-
-1. **Strassen**: O(n^2.807) vs O(n³)
-2. **BLAS (OpenBLAS/MKL)**: Otimizações assembly
-3. **ScaLAPACK**: Distribuição 2D de dados
-4. **Cannon's Algorithm**: Melhor comunicação MPI
-5. **GPU (CUDA/cuBLAS)**: 100-1000x mais rápido
-
-## 🚀 Roadmap
-
-Possíveis melhorias futuras:
-
-1. ✅ Implementação básica MPI + OpenMP
-2. ✅ Otimizações de cache (transposta)
-3. ✅ Vetorização SIMD
-4. ✅ Benchmark automático com análise de ponto de quebra
-5. ✅ Visualização com 9 gráficos de análise
-6. 🔄 Algoritmo de Strassen (O(n^2.807))
-7. 🔄 Cache blocking (tiling) otimizado
-8. 🔄 Suporte GPU (CUDA/cuBLAS)
-9. 🔄 Distribuição 2D de dados
-10. 🔄 I/O otimizado para matrizes em disco
-
-## 📚 Referências
-
-- [Matrix Multiplication Optimization (Goto)](https://www.cs.utexas.edu/~pingali/CS378/2008sp/papers/gotoPaper.pdf)
-- [MPI Matrix Multiplication](https://www.mcs.anl.gov/research/projects/mpi/)
-- [OpenMP SIMD Directives](https://www.openmp.org/spec-html/5.0/openmpsu42.html)
-- [Cache-Oblivious Algorithms](https://en.wikipedia.org/wiki/Cache-oblivious_algorithm)
-
-## 🤝 Contribuindo
-
-Melhorias são bem-vindas! Áreas de interesse:
-
-- Otimizações adicionais
-- Suporte para GPU
-- Algoritmos alternativos (Strassen, Coppersmith-Winograd)
-- Melhorias no benchmark
-- Documentação
-
 ## 📝 Licença
 
 MIT License
@@ -467,18 +360,4 @@ Projeto educacional demonstrando técnicas de computação paralela de alto dese
 
 ## 🚀 Começar Agora
 
-```bash
-# Compilar
-make
-
-# Teste rápido (2 configurações)
-make test
-
-# Benchmark automático completo (recomendado)
-make bench
-
-# Ver resultados
-ls -lh matrix_giant_*.csv matrix_giant_*.png
-```
-
-**Dica:** Ao abrir no devcontainer, tudo é executado automaticamente! 🎉
+**Dica:** Ao abrir no devcontainer, tudo é executado automaticamente! 🎉 
